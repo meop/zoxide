@@ -190,7 +190,9 @@ jobs:
           if (-not $sshd) { Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null }
           Start-Service sshd
           $key = Join-Path $env:TEMP 'zx_ed25519'
-          ssh-keygen -q -t ed25519 -N '""' -f $key
+          # cmd passes -N "" as an empty passphrase; PowerShell would pass two quote characters.
+          cmd /c ('ssh-keygen -q -t ed25519 -N "" -f "{0}"' -f $key)
+          if (-not (Test-Path "$key.pub")) { throw 'ssh-keygen failed' }
           $auth = 'C:\ProgramData\ssh\administrators_authorized_keys'
           Get-Content "$key.pub" | Set-Content $auth -Encoding ascii
           icacls $auth /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
