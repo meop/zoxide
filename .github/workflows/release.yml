@@ -141,3 +141,50 @@ jobs:
             *.msi
           name: ${{ steps.get_version.outputs.value }}
           tag_name: ""
+  # Fork-only: install each Windows MSI on a matching runner and check the result.
+  msi-install-test:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            machine: 0x8664
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            machine: 0xAA64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ matrix.target }}
+      - name: Install, check, and uninstall the MSI
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem *.msi | Select-Object -First 1).FullName
+          function Invoke-Msi($verb, $log) {
+            $p = Start-Process msiexec -ArgumentList "$verb `"$msi`" /qn /l*v $log" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "msiexec $verb failed: $($p.ExitCode)" }
+          }
+          Invoke-Msi '/i' install.log
+          $exe = Join-Path $env:ProgramFiles 'zoxide\bin\zoxide.exe'
+          if (-not (Test-Path $exe)) { throw "not installed at $exe" }
+          $item = Get-Item $exe
+          if ($item.LinkType) { throw "zoxide.exe is a $($item.LinkType), not a file" }
+          $bytes = [IO.File]::ReadAllBytes($exe)
+          $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          "PE machine: 0x{0:X4}" -f $machine
+          if ($machine -ne ${{ matrix.machine }}) { throw "unexpected PE machine type" }
+          # A new SSH session gets the machine PATH, so resolve zoxide through it alone.
+          $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          if ($machinePath -notlike '*\zoxide\bin*') { throw 'zoxide\bin is not on the machine PATH' }
+          $env:Path = $machinePath
+          (Get-Command zoxide).Source
+          zoxide --version
+          if ($LASTEXITCODE -ne 0) { throw 'zoxide --version failed' }
+          Invoke-Msi '/x' uninstall.log
+          if (Test-Path $exe) { throw 'zoxide.exe remains after uninstall' }
+          if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -like '*\zoxide\bin*') { throw 'PATH entry remains after uninstall' }
+          'install, PATH lookup, and uninstall OK'
