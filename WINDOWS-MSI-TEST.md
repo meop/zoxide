@@ -95,9 +95,22 @@ PATH (`[Environment]::GetEnvironmentVariable('Path','Machine')`).
 Record each step with the machine (x64 or ARM64, Windows version), the SSH
 shell, and the commit this ran against.
 
+Machine for the x64 rows: glass, Windows 11 26H2 (build 26300), x64. Win32-OpenSSH
+9.5p2 (inbox), SSH shell PowerShell 7 (`pwsh -nol` via `DefaultShell`), Nushell
+0.116.0. The account is an administrator, so SSH sessions are elevated. Developer
+Mode is on. MSI from run 37183594306, sha256
+`756159fd8c0d9876ae3b37b35aebb70210116dca7512387d819b4a3dadd3a790`. Commands were
+run as PowerShell scripts over SSH, not interactively.
+
 | Step | Machine | Result |
 | --- | --- | --- |
-| 1. Portable over SSH | | |
-| 2. MSI over SSH | | |
-| 3. Both installed | | |
-| 4. Uninstall | | |
+| 1. Portable over SSH | x64 (glass) | **Did not reproduce #1180.** `zoxide --version` through the `WinGet\Links` symlink worked from cmd, PowerShell 5.1, pwsh and nu, including nu with `Links` first on PATH, `zoxide init nushell`, `zoxide add` and `z`. It also worked after changing the link's owner from `BUILTIN\Administrators` (an elevated install) to the user, which is what a non-elevated install produces |
+| 2. MSI over SSH | x64 (glass) | Silent install exit 0. A real `zoxide.exe` (not a link) in `C:\Program Files\zoxide\bin`, machine PATH entry added, Apps entry "zoxide 0.10.0". Worked from cmd, PowerShell 5.1 and nu (`init`, `add`, `z`) |
+| 3. Both installed | x64 (glass) | `where.exe zoxide` order over SSH: any user-profile PATH prepend first, then the MSI (machine PATH), then the winget link (user PATH) |
+| 4. Uninstall | x64 (glass) | `msiexec /x` exit 0. `Program Files\zoxide`, the machine PATH entry and the Apps entry are all gone |
+
+Still open: reproduce step 1 on the machine where #1180 was seen. It could be
+specific to a non-elevated account, an older Windows or OpenSSH, or Windows on
+ARM64. Error 448 (`ERROR_UNTRUSTED_MOUNT_POINT`) comes from Windows' redirection
+guard, which refuses to follow a link owned by a less trusted user, so the
+account type and how the link was created matter.
