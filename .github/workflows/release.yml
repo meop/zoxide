@@ -184,6 +184,30 @@ jobs:
           (Get-Command zoxide).Source
           zoxide --version
           if ($LASTEXITCODE -ne 0) { throw 'zoxide --version failed' }
+          # Over SSH: the original problem is that winget's portable install puts a
+          # symlink on PATH, which Windows does not follow in SSH sessions.
+          $sshd = Get-Service sshd -ErrorAction SilentlyContinue
+          if (-not $sshd) { Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null }
+          Start-Service sshd
+          $key = Join-Path $env:TEMP 'zx_ed25519'
+          ssh-keygen -q -t ed25519 -N '""' -f $key
+          $auth = 'C:\ProgramData\ssh\administrators_authorized_keys'
+          Get-Content "$key.pub" | Set-Content $auth -Encoding ascii
+          icacls $auth /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+          $ssh = @('-i', $key, '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes', "$env:USERNAME@localhost")
+          'MSI install over SSH:'
+          ssh @ssh 'zoxide --version'
+          if ($LASTEXITCODE -ne 0) { throw 'zoxide failed over SSH after the MSI install' }
+          # Comparison: a winget-style portable symlink on the machine PATH.
+          $links = 'C:\WinGetLinksDemo'
+          New-Item -ItemType Directory $links | Out-Null
+          New-Item -ItemType SymbolicLink -Path "$links\zoxide-portable.exe" -Target $exe | Out-Null
+          [Environment]::SetEnvironmentVariable('Path', "$machinePath;$links", 'Machine')
+          Restart-Service sshd
+          'Portable-style symlink over SSH (expected to fail):'
+          ssh @ssh 'zoxide-portable --version'
+          "symlink exit code: $LASTEXITCODE"
+          [Environment]::SetEnvironmentVariable('Path', $machinePath, 'Machine')
           Invoke-Msi '/x' uninstall.log
           if (Test-Path $exe) { throw 'zoxide.exe remains after uninstall' }
           if ([Environment]::GetEnvironmentVariable('Path', 'Machine') -like '*\zoxide\bin*') { throw 'PATH entry remains after uninstall' }
