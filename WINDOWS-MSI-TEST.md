@@ -109,8 +109,22 @@ run as PowerShell scripts over SSH, not interactively.
 | 3. Both installed | x64 (glass) | `where.exe zoxide` order over SSH: any user-profile PATH prepend first, then the MSI (machine PATH), then the winget link (user PATH) |
 | 4. Uninstall | x64 (glass) | `msiexec /x` exit 0. `Program Files\zoxide`, the machine PATH entry and the Apps entry are all gone |
 
-Still open: reproduce step 1 on the machine where #1180 was seen. It could be
-specific to a non-elevated account, an older Windows or OpenSSH, or Windows on
-ARM64. Error 448 (`ERROR_UNTRUSTED_MOUNT_POINT`) comes from Windows' redirection
-guard, which refuses to follow a link owned by a less trusted user, so the
-account type and how the link was created matter.
+Reproduced on 2026-10-05 with `windows-msi-test/repro-ssh.ps1` (run through
+`windows-msi-test/run-on-host.sh glass.lan 22 ajeetdsouza.zoxide zoxide.exe
+<msi>`). The key is who creates the link: my first attempt ran winget from the
+elevated SSH session, so the link was trusted. Done as a user would, winget
+running in the logged-in desktop session at medium integrity:
+
+| Step | Result |
+| --- | --- |
+| Portable install, non-elevated | `WinGet\Links\zoxide.exe` symlink owned by `GLASS\marshall` |
+| Same link, non-elevated | `zoxide 0.10.0` |
+| Same link, elevated SSH session (an administrator's SSH session is elevated) | "The path cannot be traversed because it contains an untrusted mount point." (error 448) |
+| MSI install, elevated SSH session | `C:\Program Files\zoxide\bin\zoxide.exe`, not a link; `zoxide 0.10.0` |
+
+Windows' redirection trust stops elevated processes from following links
+created by less-privileged processes, so any winget portable package installed
+from a normal terminal fails this way over SSH for an administrator. An MSI
+install has no link. A scheduled task with `-LogonType S4U -RunLevel Limited`
+still runs at high integrity for an administrator, so the script uses an
+interactive task and needs the user logged in at the console.
